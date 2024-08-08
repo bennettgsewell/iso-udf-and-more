@@ -4,3 +4,11 @@
 I'm starting this project 2024-08-08, feel free to join in and contribute! UNless I'm hit by a bus I'm quite active on GitHub.
 
 I cannot find a comprehensive library that does every CD/DVD/Blu-Ray filesystem. The software that do support these systems, such as ImgBurn, seem to be closed source. I figure this is as good a time as any to learn Rust and help fill a hole. Maybe I'll succeed, maybe this will just be another project that dies.
+
+# TODO
+
+* [ ] ISO 9660
+* [ ] ISO 13490
+* [ ] UDF
+* [ ] Juliet
+* [ ] Rock Ridge
