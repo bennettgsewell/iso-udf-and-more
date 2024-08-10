@@ -13,6 +13,7 @@ I cannot find a comprehensive library that does every CD/DVD/Blu-Ray filesystem.
 * [ ] Juliet
 * [ ] Rock Ridge
 * [ ] ISO 13490
+* [ ] Tattooing CD-Rs
 
 # ISO 9660
 
