@@ -10,7 +10,7 @@ I cannot find a comprehensive library that does every CD/DVD/Blu-Ray filesystem.
 
 * [ ] ISO 9660
 * [ ] UDF
-* [ ] Juliet
+* [ ] Joliet
 * [ ] Rock Ridge
 * [ ] ISO 13490
 * [ ] Tattooing CD-Rs
