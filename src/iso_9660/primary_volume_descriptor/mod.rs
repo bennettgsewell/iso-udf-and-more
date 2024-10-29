@@ -1,66 +1,32 @@
-use std::io::{Error, Seek, Write};
+use std::io::{Error, Read, Seek, SeekFrom, Write};
 
-mod system_identifier_string;
-mod volume_identifier_string;
-
-use system_identifier_string::*;
-use volume_identifier_string::*;
-
-use super::sector;
+use super::{
+    ascii_character_sets::{self, convert_str_into_buf, CharacterSets},
+    sector,
+};
 
 /// # Primary Volume Descriptor
-/// 
-/// The header of an ISO-9660 CD-ROM
-/// 
+///
+/// The header of an ISO-9660 CD-ROM located at sector 16.
+///
 /// It contains information such as the label, pointer to the root directory, and volume information.
+#[derive(Default)]
 pub struct PrimaryVolumeDescriptor {
-    /// The value `1` indicates the "Primary Volume Descriptor" is being used.
-    ///
-    /// I am unaware of any other descriptor models in existence.
-    ///
-    /// `1u8`
-    pub volume_descriptor_type: [u8; 1],
-
-    /// This short ASCII string indicates that this disc is an ISO-9660
-    ///
-    /// ASCII: `"CD001"`
-    pub standard_identifier: [u8; 5],
-
-    /// Version of the "Primary Volume Descriptor"
-    ///
-    /// `1u8`
-    pub volume_descriptor_version: [u8; 1],
-
-    /// Nothing like an unused byte!
-    ///
-    /// `0u8` I believe this byte is to pad strings into a binary spots.
-    pub unused_field: [u8; 1],
-
     /// An ASCII string that can only contain the following characters, ignore the square brackets;
     ///
     /// `A-Z, 0-9, [_ !"%'()*+,-./:;<=>?]`
-    pub system_identififer: SystemIdentifierString,
+    pub system_identififer: String,
 
     /// An ASCII string that can only contain the following characters, ignore the square brackets;
     ///
     /// `A-Z, 0-9, [_]`
-    pub volume_identifier: VolumeIdentifierString,
-
-    /// Nothing like an unused bytes!
-    ///
-    /// `[0u8; 8]`
-    pub unused_fields2: [u8; 8],
+    pub volume_identifier: String,
 
     /// Logical Volume block count
     pub volume_space_size: u32,
 
-    /// Nothing like an unused bytes!
-    ///
-    /// `[0u8; 32]`
-    pub unused_fields3: [u8; 32],
-
     /// The volume set size
-    /// 
+    ///
     /// It's how many CDs are in a set. For instance a video game came with
     /// five installation CD-ROMs in its box, or a music album may contain two discs.
     pub volume_set_size: u16,
@@ -73,63 +39,236 @@ pub struct PrimaryVolumeDescriptor {
     pub logical_block_size: u16,
 
     /// The size of the path table in bytes.
-    pub path_table_size: u32
+    pub path_table_size: u32,
+
+    /// Logical block number of LE Path Table
+    pub le_path_table: u32,
 }
 
 impl PrimaryVolumeDescriptor {
-    /// Creates a new empty `PrimaryVolumeDescriptor`
-    pub fn new<'a>(
-        system_identifier: &str,
-        volume_identifier: &str,
-        volume_space_size: u32,
-        volume_set_size: u16,
-        volume_sequence_number: u16,
-        logical_block_size: u16,
-        path_table_size: u32
-    ) -> Result<PrimaryVolumeDescriptor, &'a str> {
+    /// # Is Primary Volume Descriptor header
+    ///
+    /// Detects the
+    pub fn read_primary_volume_descriptor<T: Read + Seek>(
+        input: &mut T,
+    ) -> Result<Option<PrimaryVolumeDescriptor>, Error> {
+        sector::seek_to_sector(input, 16)?;
+
+        // This short ASCII string indicates that this filesystem is ISO-9660
+        const EXPECTED_DATA: &[u8; 6] = b"\x01CD001";
+        const BUF_SIZE: usize = EXPECTED_DATA.len();
+
+        let mut buf = [0u8; BUF_SIZE];
+        let read = input.read(&mut buf)?;
+
+        if BUF_SIZE != read || EXPECTED_DATA != &buf {
+            return Ok(None);
+        }
+
+        fn invalid_data(err_msg: &'static str) -> Error {
+            Error::new(std::io::ErrorKind::InvalidData, err_msg)
+        }
+
+        fn bomb_out(err_msg: &'static str) -> Result<Option<PrimaryVolumeDescriptor>, Error> {
+            Err(invalid_data(err_msg))
+        }
+
+        // The value `1` indicates the "Primary Volume Descriptor" structure is being used here.
+        // TODO: I am unaware of any other descriptor models in existence.
+        if buf[0] != 1 {
+            return bomb_out("Volume Descriptor Type is not supported!");
+        }
+
+        fn read_byte<T: Read>(mut input: T) -> Result<u8, Error> {
+            let mut buf = [0u8; 1];
+            input.read_exact(&mut buf)?;
+            Ok(buf[0])
+        }
+        
+        let mut return_data = PrimaryVolumeDescriptor::default();
+
+        // Version of the "Primary Volume Descriptor"
+        // TODO: I am unaware if there are/were future versions or not.
+        let primary_descriptor_volume_ver = read_byte(input)?;
+        if primary_descriptor_volume_ver != 1 {
+            return bomb_out("Primary Volume Descriptor version is not supported!")
+        }
+
+        // Nothing like an unused byte!
+        input.seek(SeekFrom::Current(1))?;
+
+        let mut system_identifier_buf = [b' '; 32];
+        input.read_exact(&mut system_identifier_buf)?;
+        return_data.system_identififer = String::from_utf8_lossy(&system_identifier_buf[..])
+        .map_err(|_| invalid_data("Failed to parse system identifier"))?;
+
+        let mut volume_identifier_buf = [b' '; 32];
+        input.read_exact(&mut volume_identifier_buf)?;
+    
+    /////////////////////////////////HERE
+        output.write(&system_identifier_buf)?;
+        output.write(&volume_identifier_buf)?;
+
+        // Nothing like an unused bytes!
+        output.write(&[0u8; 8])?;
+
+        // TODO: Make a bi-endian struct so these are simpler
+        output.write(&self.volume_space_size.to_le_bytes())?;
+        output.write(&self.volume_space_size.to_be_bytes())?;
+
+        // Nothing like an unused bytes!
+        output.write(&[0u8; 32])?;
+
+        output.write(&self.volume_set_size.to_le_bytes())?;
+        output.write(&self.volume_set_size.to_be_bytes())?;
+
+        output.write(&self.volume_sequence_number.to_le_bytes())?;
+        output.write(&self.volume_sequence_number.to_be_bytes())?;
+
+        output.write(&self.logical_block_size.to_le_bytes())?;
+        output.write(&self.logical_block_size.to_be_bytes())?;
+
+        output.write(&self.path_table_size.to_le_bytes())?;
+        output.write(&self.path_table_size.to_be_bytes())?;
+
+        output.write(&self.le_path_table.to_le_bytes())?;
+
+
+
+    }
+
+    /*
+    pub fn read_primary_volume_descriptor<T: Read + Seek>(input: &mut T) -> Result<PrimaryVolumeDescriptor, Error>{
+        sector::seek_to_sector(input, 16)?;
+
+        // The value `1` indicates the "Primary Volume Descriptor" structure is being used here.
+        // TODO: I am unaware of any other descriptor models in existence.'
+        input.read_exact(buf).write(&[1u8; 1])?;
+
+        // This short ASCII string indicates that this filesystem is ISO-9660
+        output.write(b"CD001")?;
+
+        // Version of the "Primary Volume Descriptor"
+        // TODO: I am unaware if there are/were future versions or not.
+        output.write(&[1u8; 1])?;
+
+        // Nothing like an unused byte!
+        output.write(&[0u8; 1])?;
+
+        let mut system_identifier_buf = [b' '; 32];
+        convert_str_into_buf(
+            &self.system_identififer,
+            CharacterSets::ACharacters,
+            &mut system_identifier_buf,
+            b' ')
+            .map_err(|_| Error::new(std::io::ErrorKind::InvalidInput, "Failed to convert primary volume descriptor system identifier into supported ASCII"))?;
+
+        let mut volume_identifier_buf = [b' '; 32];
+        convert_str_into_buf(
+            &self.volume_identifier,
+            CharacterSets::ACharacters,
+            &mut volume_identifier_buf,
+            b' ')
+            .map_err(|_| Error::new(std::io::ErrorKind::InvalidInput, "Failed to convert primary volume descriptor volume identifier into supported ASCII"))?;
+
+        output.write(&system_identifier_buf)?;
+        output.write(&volume_identifier_buf)?;
+
+        // Nothing like an unused bytes!
+        output.write(&[0u8; 8])?;
+
+        // TODO: Make a bi-endian struct so these are simpler
+        output.write(&self.volume_space_size.to_le_bytes())?;
+        output.write(&self.volume_space_size.to_be_bytes())?;
+
+        // Nothing like an unused bytes!
+        output.write(&[0u8; 32])?;
+
+        output.write(&self.volume_set_size.to_le_bytes())?;
+        output.write(&self.volume_set_size.to_be_bytes())?;
+
+        output.write(&self.volume_sequence_number.to_le_bytes())?;
+        output.write(&self.volume_sequence_number.to_be_bytes())?;
+
+        output.write(&self.logical_block_size.to_le_bytes())?;
+        output.write(&self.logical_block_size.to_be_bytes())?;
+
+        output.write(&self.path_table_size.to_le_bytes())?;
+        output.write(&self.path_table_size.to_be_bytes())?;
+
+        output.write(&self.le_path_table.to_le_bytes())?;
+
         Ok(PrimaryVolumeDescriptor {
-            volume_descriptor_type: [1u8],
-            standard_identifier: b"CD001".to_owned(),
-            volume_descriptor_version: [1u8],
-            unused_field: [0u8],
-            system_identififer: SystemIdentifierString::new(system_identifier).map_err(|err| err.1)?,
-            volume_identifier: VolumeIdentifierString::new(volume_identifier).map_err(|err| err.1)?,
-            unused_fields2: [0u8; 8],
-            volume_space_size: volume_space_size,
-            unused_fields3: [0u8; 32],
-            volume_set_size: volume_set_size,
-            volume_sequence_number: volume_sequence_number,
-            logical_block_size: logical_block_size,
-            path_table_size: path_table_size
+
         })
     }
-    
-    /// Writes the `PrimaryVolumeDescriptor` to the output file on sector 16
+    */
+    /// # Write Primary Volume Descriptor
+    ///
+    /// Writes the `PrimaryVolumeDescriptor` to the output file to sector 16
     pub fn write_primary_volume_descriptor<IsoFile: Write + Seek>(
         self: &PrimaryVolumeDescriptor,
         mut output: IsoFile,
     ) -> Result<(), Error> {
         // Seek to the 16th sector of the file.
         sector::seek_to_sector(&mut output, 16)?;
-        
-        output.write(&self.volume_descriptor_type)?;
-        output.write(&self.standard_identifier)?;
-        output.write(&self.volume_descriptor_version)?;
-        output.write(&self.unused_field)?;
-        output.write(self.system_identififer.get_ascii_data())?;
-        output.write(self.volume_identifier.get_ascii_data())?;
-        output.write(&self.unused_fields2)?;
+
+        // The value `1` indicates the "Primary Volume Descriptor" structure is being used here.
+        // TODO: I am unaware of any other descriptor models in existence.
+        output.write(&[1u8; 1])?;
+
+        // This short ASCII string indicates that this filesystem is ISO-9660
+        output.write(b"CD001")?;
+
+        // Version of the "Primary Volume Descriptor"
+        // TODO: I am unaware if there are/were future versions or not.
+        output.write(&[1u8; 1])?;
+
+        // Nothing like an unused byte!
+        output.write(&[0u8; 1])?;
+
+        let mut system_identifier_buf = [b' '; 32];
+        convert_str_into_buf(
+            &self.system_identififer,
+            CharacterSets::ACharacters,
+            &mut system_identifier_buf,
+            b' ')
+            .map_err(|_| Error::new(std::io::ErrorKind::InvalidInput, "Failed to convert primary volume descriptor system identifier into supported ASCII"))?;
+
+        let mut volume_identifier_buf = [b' '; 32];
+        convert_str_into_buf(
+            &self.volume_identifier,
+            CharacterSets::ACharacters,
+            &mut volume_identifier_buf,
+            b' ')
+            .map_err(|_| Error::new(std::io::ErrorKind::InvalidInput, "Failed to convert primary volume descriptor volume identifier into supported ASCII"))?;
+
+        output.write(&system_identifier_buf)?;
+        output.write(&volume_identifier_buf)?;
+
+        // Nothing like an unused bytes!
+        output.write(&[0u8; 8])?;
+
+        // TODO: Make a bi-endian struct so these are simpler
         output.write(&self.volume_space_size.to_le_bytes())?;
         output.write(&self.volume_space_size.to_be_bytes())?;
-        output.write(&self.unused_fields3)?;
+
+        // Nothing like an unused bytes!
+        output.write(&[0u8; 32])?;
+
         output.write(&self.volume_set_size.to_le_bytes())?;
         output.write(&self.volume_set_size.to_be_bytes())?;
+
         output.write(&self.volume_sequence_number.to_le_bytes())?;
         output.write(&self.volume_sequence_number.to_be_bytes())?;
+
         output.write(&self.logical_block_size.to_le_bytes())?;
         output.write(&self.logical_block_size.to_be_bytes())?;
+
         output.write(&self.path_table_size.to_le_bytes())?;
         output.write(&self.path_table_size.to_be_bytes())?;
+
+        output.write(&self.le_path_table.to_le_bytes())?;
 
         output.flush()?;
 

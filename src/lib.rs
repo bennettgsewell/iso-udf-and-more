@@ -1,4 +1,16 @@
+use std::io::{Error, Read, Seek};
+
 pub mod iso_9660;
+
+struct ImageFS {
+    is_iso_9660: bool
+}
+
+impl ImageFS {
+    pub fn LoadFrom<T: Read + Seek>(data: T) -> Result<ImageFS, Error> {
+        iso_9660::
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -9,10 +21,16 @@ mod tests {
 
     /// Temporary test to re-create an ISO I have locally on my machine.
     #[test]
-    fn recreate_example_iso() -> Result<(), &'static str>{
-        //const original_filename: &str = "example.iso";
+    fn copy_iso() {
+        const INPUT_FILENAME: &str = "example.iso";
         const OUTPUT_FILENAME: &str = "example_copy.iso";
 
+        let input_file = File::open(INPUT_FILENAME)
+        .expect("Failed to open input file");
+
+        ImageFS::LoadFrom(input_file);
+
+        /*
         let output_path = Path::new(OUTPUT_FILENAME);
 
         // Delete the output iso if it exists.
@@ -23,19 +41,10 @@ mod tests {
         // Create a new output file to write to
         let output_file = File::create_new(output_path).expect("Failed to create output file!");
 
-        let primary_volume_descriptor = PrimaryVolumeDescriptor::new(
-            "",
-            "MY_EXAMPLE_ISO",
-            600, 
-            1,
-            1,
-            2048,
-            10
-        )?;
-
         primary_volume_descriptor.write_primary_volume_descriptor(output_file)
         .expect("Failed!");
 
         Ok(())
+        */
     }
 }
